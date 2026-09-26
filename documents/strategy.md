@@ -10,6 +10,8 @@ ARIA starts as a prompt-driven personality engine powered by a third party AI. O
 
 That is the destination. Everything between here and there is about building the foundation properly so each phase sets up the next one cleanly.
 
+This is being built to see how far a simulated person can be pushed, not toward making the engine into a sellable or general-purpose product. The roadmap below is in service of Aria specifically, not a platform.
+
 ---
 
 ## Phase 0 — Foundation (Now)
@@ -21,21 +23,21 @@ Before any code gets written, the foundation needs to be solid. This phase is al
 - ARIA_Strategy.md written (this document)
 - ARIA_Data_Policy.md written (done)
 - ARIA_Structure.md written (done)
-- Three repos created on GitHub: `aria-engine`, `aria-bot`, `iris`
+- Two repos created on GitHub: `aria` (containing `engine/` and `bot/`), `iris`
 - Turso databases provisioned: `aria-core`, `aria-users`, `aria-knowledge`
 - Private Discord logging server created with all log channels and consent channel set up
 - schema.js written and migrations run on all three databases
-- configdata.json filled in for the first bot (Aria)
-- .env set up for the engine
-- .env set up for Iris (Discord token and allowed engine URL)
+- configdata.json filled in for the bot (Aria)
+- .env set up for the aria repo
+- .env set up for Iris (Discord token and allowed caller URLs/keys)
 
-**Done when:** All three repos exist, databases are live with correct schema, logging server is ready, and the project structure matches the plan exactly.
+**Done when:** Both repos exist, databases are live with correct schema, logging server is ready, and the project structure matches the plan exactly.
 
 ---
 
 ## Phase 1 — Engine Core (Closed Alpha Prep)
 
-Build the engine folder by folder, starting with core. No bot yet. No Discord. Just the engine running locally and returning correct results when given a context object manually.
+Build the engine folder by folder inside `aria/engine`, starting with core. No bot wiring yet beyond a simple call-through. Just the engine running locally and returning correct results when given a context object manually.
 
 **Order of development:**
 
@@ -57,6 +59,7 @@ Then utils:
 - sentiment.js
 - vocabulary_parser.js
 - moment_detector.js
+- log_dispatcher.js
 
 Then personas:
 - chaotic_loveable.js with all three age bracket variants
@@ -64,22 +67,19 @@ Then personas:
 - sweet_moody.js
 - chill_observant.js
 
-Then jobs:
+Then jobs, built in the order they will actually run each night:
+- cycle_update.js
+- schedule_gen.js
 - decay.js
 - knowledge_decay.js
+- memory_prune.js
 - reflect.js
-- schedule_gen.js
-- cycle_update.js
 - mood_baseline.js
 - reach_out.js
 
-Then api:
-- rest.js
-- socket.js
+Then a thin entry point that exposes each of the above as a callable function for `bot/` to use.
 
-Then index.js wiring everything together.
-
-**Testing at this stage:** Send hand-crafted context objects to the engine via a REST client like Postman or Thunder Client. Verify the prompt output looks right, state updates are correct, flags fire when they should. No bot involved yet.
+**Testing at this stage:** Call the engine's exported functions directly with hand-crafted context objects, either from a small test script or a REPL. Verify the prompt output looks right, state updates are correct, flags fire when they should. No bot involved yet.
 
 **Done when:** The engine accepts any valid context object and returns a correctly assembled prompt, accurate state updates, and appropriate flags every time.
 
@@ -87,7 +87,7 @@ Then index.js wiring everything together.
 
 ## Phase 2 — Bot Pipeline (Closed Alpha Prep)
 
-Build the bot as a clean pipeline connecting Discord, the engine, and the databases. No real users yet, just making sure the full loop works end to end.
+Build `aria/bot` as a clean pipeline connecting Discord, the engine module, and the databases. No real users yet, just making sure the full loop works end to end.
 
 **Order of development:**
 
@@ -98,8 +98,7 @@ Database layer first:
 - db/knowledge.js
 
 Then the engine connection:
-- engine/client.js
-- engine/socket.js
+- engine_bridge/client.js
 
 Then the AI provider:
 - ai/provider.js (start with whichever free provider is chosen for alpha)
@@ -116,7 +115,7 @@ Then handlers:
 - handlers/vouch.js
 
 Then utils:
-- utils/logger.js
+- utils/log_dispatcher.js
 - utils/formatter.js
 - utils/typing.js
 - utils/cooldown.js
@@ -126,17 +125,18 @@ Then utils:
 - utils/queue.js
 
 Then jobs:
-- jobs/scheduler.js (fires at midnight Stockholm time)
+- jobs/scheduler.js (fires at midnight Stockholm time, calls the engine's job functions in the dependency order defined in project.md — cycle_update, schedule_gen, decay, knowledge_decay, memory_prune, reflect, mood_baseline, reach_out)
 
-Then Iris:
+Then Iris (separate repo, built alongside):
+- iris/config/routes.json
 - iris/handlers/log.js
 - iris/handlers/consent.js
 - iris/utils/formatter.js
 - iris/index.js
 
-Then index.js.
+Then index.js wiring everything together.
 
-**Testing at this stage:** Run the bot in a private test server with just the developer. Send messages, verify the full loop works. Check that DB reads and writes are correct. Check that logs appear in the logging server. Check that the nightly scheduler fires and writes back correctly.
+**Testing at this stage:** Run the bot in a private test server with just the developer. Send messages, verify the full loop works. Check that DB reads and writes are correct. Check that logs appear in the correct logging server channels via Iris's routing config. Check that the nightly scheduler fires in the right order and writes back correctly.
 
 **Done when:** A full message flow works end to end. Message in, context assembled, engine called, AI called, response delivered, DB updated, logs written. Everything in the right place.
 
@@ -146,7 +146,7 @@ Then index.js.
 
 The engine and bot are running. Real testing begins but strictly internal. The goal here is stability and catching everything that breaks in real use before anyone else sees it.
 
-**Who:** 10 people max. All trusted, all briefed on what they are testing. One server only.
+**Who:** The dev team plus up to 10 invited people max, all trusted and briefed on what they are testing. One server only. "Users" here refers to people outside the dev team — this phase is not a public test in any sense.
 
 **What to focus on:**
 - Does the mood system feel natural over days of use
@@ -154,8 +154,8 @@ The engine and bot are running. Real testing begins but strictly internal. The g
 - Does the cycle system produce noticeable but not jarring behavior changes
 - Does the daily schedule feel realistic
 - Does the sleep system work correctly including the wake-up flow
-- Do nightly jobs run cleanly and produce sensible updates
-- Are logs readable and useful for debugging
+- Do nightly jobs run cleanly in the correct order and produce sensible updates
+- Are logs readable, correctly routed, and useful for debugging
 - Does the block system behave correctly including the memory freeze
 - Does vocabulary learning actually work
 - Does the fact verification system catch wrong information reliably
@@ -171,7 +171,7 @@ The engine and bot are running. Real testing begins but strictly internal. The g
 
 **AI provider for this phase:** Whatever free tier is most stable. Groq with Llama 3 is the current recommendation. Document which model is used and how it performs.
 
-**Logging:** Everything goes to the Discord logging server. Every interaction, every mood shift, every flag, every nightly job run. This data will matter later.
+**Logging:** Everything goes to the Discord logging server, routed through Iris. Every interaction, every mood shift, every flag, every nightly job run. This data will matter later.
 
 **Done when:** The system runs stably for at least two to three weeks with no critical bugs. Behavior feels consistently human. Logs are clean and structured.
 
@@ -233,7 +233,7 @@ Open to anyone, but still capped at three servers maximum. The goal is stress te
 - Prompt bloat. Does the context object stay lean or start growing too large
 - Any edge cases in the block and vouch system that only appear with more people
 
-**Logging transition point:** If Discord log volume gets genuinely noisy during this phase, evaluate adding Axiom or Betterstack for structured logs. Keep Discord for errors and critical events only if that happens.
+**Logging transition point:** If Discord log volume gets genuinely noisy during this phase, evaluate adding Axiom or Betterstack for structured logs, and update Iris's routing config accordingly. Keep Discord for errors and critical events only if that happens.
 
 **Done when:** The system runs stably across three servers over an extended period. Knowledge base is clean. Performance is acceptable. Training data is accumulating at a meaningful rate.
 
@@ -363,11 +363,11 @@ Every phase contributes to the training data pool. From closed alpha onward, eve
 **Data hygiene rules:**
 - Never log personally identifiable information beyond Discord user IDs
 - Interaction summaries in the DB are brief and behavioral, not verbatim quotes
-- Full prompt and response pairs go to the Discord logging server as structured entries
+- Full prompt and response pairs go to the Discord logging server as structured entries, routed through Iris
 - Periodically audit logs for quality and remove anything that does not represent good training examples (broken responses, API errors, edge cases)
 
 **Volume expectations:**
-- Closed alpha (10 people, 1 server): hundreds to low thousands of interactions. Stability testing, early data.
+- Closed alpha (up to 10 invited people, 1 server): hundreds to low thousands of interactions. Stability testing, early data.
 - Private beta (50 people, 1 server): tens of thousands. Real patterns emerge, fine-tuning experiments become viable.
 - Public beta (3 servers, open): hundreds of thousands over time. Dataset becomes serious.
 - Full release (10 servers, 10k users): data accumulates passively at scale. Every conversation from here builds the LM foundation.
@@ -379,7 +379,7 @@ Every phase contributes to the training data pool. From closed alpha onward, eve
 
 At each phase there is one honest question to ask.
 
-After closed alpha: does she feel like a real person to the 10 people who tested her.
+After closed alpha: does she feel like a real person to the people who tested her.
 
 After private beta: do the 50 people forget they are talking to a bot after extended interaction.
 
@@ -396,12 +396,12 @@ After the custom LM: is the voice fully owned, fully controlled, and impossible 
 ## Release Timeline Summary
 
 ```
-Closed Alpha     1 server     10 people      Internal testing
-Private Beta     1 server     50 people      Curated testers
-Public Beta      3 servers    Open           Stress testing
-Full Release     10 servers   10k users      Live product, data accumulation
-Fine Tuning      —            —              External model shaped to her voice
-Custom LM        —            —              Final piece, fully owned voice
+Closed Alpha     1 server     Team + ≤10 invited    Internal testing
+Private Beta     1 server     50 people             Curated testers
+Public Beta      3 servers    Open                  Stress testing
+Full Release     10 servers   10k users             Live product, data accumulation
+Fine Tuning      —            —                     External model shaped to her voice
+Custom LM        —            —                     Final piece, fully owned voice
 ```
 
 ---
