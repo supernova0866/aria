@@ -2,15 +2,13 @@
 
 ## What is ARIA?
 
-ARIA is a personality simulation engine built to power Discord bots that feel like actual people. Not a chatbot framework, not a wrapper around an AI API. ARIA is the brain and the emotional core. The bot is just the face.
+ARIA is a personality simulation engine built to power a Discord bot that feels like an actual person. Not a chatbot framework, not a wrapper around an AI API. ARIA is the brain and the emotional core. The bot is just the face.
 
 This project was not built to solve a problem. It was built out of pure curiosity and love for the craft. The question was simple: how far can you actually push the idea of a simulated personality before it starts feeling real? M3gan was a small inspiration, not the horror, but the ambition behind it. The idea of something built with enough care and enough systems that it develops a genuine presence. ARIA is that attempt, taken seriously and built from the ground up.
 
-ARIA tracks emotional state, simulates a daily life, learns language from real conversations, builds relationships with users over time, and remembers things. It runs as a standalone hosted service that any compatible bot can connect to via REST and WebSocket. Swap the config file and you have a completely different character running on the same engine.
+This project is not being built for commercial release or as a general-purpose platform. The goal is not a corporate-ready engine that could be sold or reused for other characters. The goal is one specific person, simulated as faithfully as possible — messy, unfiltered, and true to herself rather than shaped around what would make the underlying system easy to sell or generalize. If the engine and bot pattern turns out to be useful for something else later, that would be a separate project built from what was learned here, not a goal this project is optimizing for.
 
-ARIA itself is completely stateless. It does not touch a database, does not call an AI provider, and does not talk to Discord. The bot handles all of that. ARIA receives a context object, runs its logic, and returns a result. That is its entire job. This means any bot in any language can use ARIA as a backend as long as it can send the right context and handle the response.
-
-The first character built on ARIA is named Aria. Female, starts at 17, ages in real time based on her birth date.
+ARIA tracks emotional state, simulates a daily life, learns language from real conversations, builds relationships with users over time, and remembers things. The first character built on ARIA is named Aria. Female, starts at 17, ages in real time based on her birth date. She lives in Stockholm, Sweden, and her sense of time, season, and daily rhythm is based on that location.
 
 ---
 
@@ -18,42 +16,56 @@ The first character built on ARIA is named Aria. Female, starts at 17, ages in r
 
 A few rules that every part of this project should follow:
 
-**She is not a bot.** Every system in ARIA exists to make her feel like a person. If a feature makes her feel more robotic, it does not belong here.
+**She is not a bot.** Every system in ARIA exists to make her feel like a person. If a feature makes her feel more robotic, or more like a generic assistant that exists to be safe and sellable, it does not belong here.
 
 **The AI API is a voice, not a brain.** ARIA does all the thinking. The language model just handles fluent sentence generation. Her personality, her mood, her opinions, her memories, none of that comes from the AI. It comes from ARIA and gets handed to the AI as context before every response.
 
-**The bot is a pipeline, not a brain.** The bot's job is to collect data, define who she is via configdata.json, send everything to ARIA, get back a result, call the AI, write updates to the DB, and send the response to Discord. No personality logic, no mood calculations, no decision making happens in the bot. It is a data pipe with Discord and DB access on both ends.
+**The engine and bot are one system, working together.** The engine holds her internal logic — mood, cycle, schedule, attention, memory processing. The bot owns Discord, the databases, and the AI provider calls. They live in the same codebase and call each other directly. This isn't about keeping them decoupled for their own sake; it's about keeping the responsibilities clean even though they run together.
 
 **Less data in the prompt means better responses.** Every field injected into the system prompt gets translated into natural language first. The AI never sees raw numbers or database fields. It sees things like "she trusts them" and "she has been in a bad mood since this afternoon."
 
 **She has a life outside of Discord.** She sleeps, eats, gets tired, does things. Messaging her is interrupting her day, not activating a service.
 
+**Consistency isn't the same as being corporate.** Things like response validation and the block system exist to keep her coherent and to stop broken or garbled output — not to sand down anything that makes her genuinely herself. Unfiltered personality is the goal. Broken output is not the same thing as personality.
+
+---
+
+## Home Location and Time
+
+Aria lives in Stockholm, Sweden. Her experienced time is Stockholm local time, which is CET (UTC+1) in winter and CEST (UTC+2) in summer, following EU daylight saving rules. This governs her schedule, sleep, mood drift, seasons, cultural calendar awareness, the nightly job pipeline, and anniversary checks. `clock.js` calculates this from scratch, with no external timezone libraries.
+
+UTC is used only for database timestamps and log entries, since it needs to be sortable and unambiguous. Anything that needs to know what time it feels like to her goes through Stockholm local time instead.
+
 ---
 
 ## Project Structure
 
-ARIA is split into three separate repositories.
+ARIA lives across two repositories.
 
 ```
-aria-engine/     The brain. Stateless logic engine. Hosted on Render.
-aria-bot/        The face. Owns the databases, Discord connection, and AI calls.
-iris/            The logger and server manager. Receives log events from the engine via HTTP and posts them to Discord. Also handles consent flow and tester onboarding.
+aria/            The character. One codebase.
+├── engine/       The brain. Mood, cycle, schedule, attention, personality assembly.
+└── bot/          The face. Owns the databases, the Discord connection, and the AI calls.
+
+iris/            The logger and server manager. Receives log events from both engine/
+                 and bot/ via HTTP and posts them to the right Discord channel based on
+                 a configurable routing table. Also handles consent flow and tester onboarding.
 ```
 
-The bot reads state from its databases, assembles a context object, sends it to the engine, gets back a processed result and assembled prompt, calls the AI provider, writes updated state back to the databases, and sends the response to Discord. The engine never touches any of that directly.
+`engine/` and `bot/` run as one process. The bot reads state from its databases, assembles a context object, passes it directly to the engine, gets back a processed result and assembled prompt, calls the AI provider, writes updated state back to the databases, and sends the response to Discord. The engine never touches the databases or Discord directly — that boundary is kept even though the code runs together, so the responsibilities stay separable if they ever need to be split apart later.
+
+`iris/` stays a genuinely separate service, since it doesn't need to share a process or a deploy lifecycle with `aria/` at all, and keeping it separate protects the logs even if the main app crashes or gets redeployed.
 
 ---
 
-## aria-engine File Structure
+## aria/engine File Structure
 
 ```
 engine/
-├── index.js                        Entry point. Starts the REST and WebSocket server.
-├── .env                            Server port and any runtime config. No identity here.
-├── package.json
+├── index.js                        Entry point when run standalone; otherwise exported for bot/ to call.
+├── .env                            Any engine-specific runtime config. No identity here.
 │
 ├── core/
-│   ├── information.md              Reference doc for every file in this folder.
 │   ├── clock.js                    Stockholm time, date awareness, real-time age calculation.
 │   ├── mood.js                     Mood state machine, intensity tracking, passive drift, anchor system.
 │   ├── residue.js                  Emotional bleed between mood transitions.
@@ -64,21 +76,18 @@ engine/
 │   ├── attention.js                Selective ignoring, mention detection, topic boredom, reaction decision.
 │   ├── atmosphere.js               Server atmosphere state. Quiet/chaos meter, collective energy.
 │   ├── typing.js                   Typing delay, multi-message decisions, typo probability.
-│   └── personality.js             Assembles all active context into a clean system prompt.
+│   └── personality.js              Assembles all active context into a clean system prompt.
 │
 ├── jobs/
+│   ├── cycle_update.js             Advances cycle phase and day count. Returns new cycle state.
+│   ├── schedule_gen.js             Generates the day's activity schedule. Returns schedule object.
 │   ├── decay.js                    Processes score decay across all users. Returns updated scores.
 │   ├── knowledge_decay.js          Cleans shallow knowledge entries past their TTL. Returns expired IDs.
+│   ├── memory_prune.js             Decays low-importance memorable moments, deletes those at zero.
 │   ├── reflect.js                  Processes nightly reflection per user. Returns updated thoughts.
-│   ├── schedule_gen.js             Generates tomorrow's activity schedule. Returns schedule object.
-│   ├── cycle_update.js             Advances cycle phase and day count. Returns new cycle state.
-│   ├── mood_baseline.js           Calculates morning mood baseline. Includes random bad day chance.
-│   └── reach_out.js               Checks for users she misses and date-significant events. Returns
+│   ├── mood_baseline.js            Calculates morning mood baseline. Includes random bad day chance.
+│   └── reach_out.js                Checks for users she misses and date-significant events. Returns
 │                                   outbound message if conditions met.
-│
-├── api/
-│   ├── rest.js                     REST endpoints. Receives context, returns results.
-│   └── socket.js                   WebSocket server, pushes processed state updates.
 │
 ├── personas/
 │   ├── chaotic_loveable.js         Base persona template with age-bracket voice variants.
@@ -86,22 +95,22 @@ engine/
 │   ├── sweet_moody.js              (17-18, 19-21, 22+) that personality.js selects from
 │   └── chill_observant.js          based on her current calculated age.
 │
-└── utils/
-    ├── descriptors.js              Translates raw scores into natural language strings.
-    ├── sentiment.js                Scores incoming messages for emotional tone.
-    ├── vocabulary_parser.js        Detects unknown words and flags them for learning.
-    └── moment_detector.js         Flags interactions worth storing as memories.
+├── utils/
+│   ├── descriptors.js              Translates raw scores into natural language strings.
+│   ├── sentiment.js                Scores incoming messages for emotional tone.
+│   ├── vocabulary_parser.js        Detects unknown words and flags them for learning.
+│   ├── moment_detector.js          Flags interactions worth storing as memories.
+│   └── log_dispatcher.js           Sends structured log events to Iris.
 ```
 
 ---
 
-## aria-bot File Structure
+## aria/bot File Structure
 
 ```
 bot/
-├── index.js                        Entry point. Connects to Discord and the engine.
-├── configdata.json                 Identity, AI provider, engine URL, DB credentials, active channels.
-├── package.json
+├── index.js                        Entry point. Connects to Discord, boots the engine module.
+├── configdata.json                 Identity, AI provider, DB credentials, active channels.
 │
 ├── db/
 │   ├── core.js                     Read/write Core DB (Turso aria-core).
@@ -109,16 +118,16 @@ bot/
 │   ├── knowledge.js                Read/write Knowledge DB (Turso aria-knowledge).
 │   └── schema.js                   Table definitions and migrations for all three databases.
 │
-├── engine/
-│   ├── client.js                   Assembles context objects, sends to ARIA, returns results.
-│   └── socket.js                   WebSocket listener, receives and writes live state updates.
+├── engine_bridge/
+│   └── client.js                   Assembles context objects, calls the engine module directly,
+│                                   returns results. Same job client.js always had, no network hop.
 │
 ├── ai/
 │   └── provider.js                 Calls AI provider with prompt, returns response text.
 │
 ├── jobs/
-│   └── scheduler.js                Fires at midnight UTC. Reads DB, calls engine job endpoints,
-│                                   writes results back. No processing logic lives here.
+│   └── scheduler.js                Fires at midnight Stockholm time. Reads DB, calls engine job
+│                                   functions in order, writes results back. No processing logic here.
 │
 ├── handlers/
 │   ├── message.js                  Orchestrates the full message pipeline. Read, send, write, reply.
@@ -136,7 +145,7 @@ bot/
 │                                   Clears after inactivity timeout. Never written to DB.
 │
 └── utils/
-    ├── logger.js                   Formats and posts all log entries to Iris via HTTP.
+    ├── log_dispatcher.js           Sends structured log events to Iris.
     ├── formatter.js                Handles Discord-specific formatting. Mentions, message length, etc.
     ├── typing.js                   Manages Discord typing indicator, message splitting, send delays.
     ├── cooldown.js                 Per-user rate limiting.
@@ -150,29 +159,30 @@ bot/
 
 ## iris File Structure
 
-Iris is a minimal Express server with a Discord client. It has two jobs: relay log events from the engine to the correct Discord channel, and manage the consent flow and tester onboarding in the internal server.
+Iris is a minimal Express server with a Discord client. It has two jobs: relay log events from `aria/` to the correct Discord channel based on a configurable routing table, and manage the consent flow and tester onboarding in the internal server.
 
 ```
 iris/
 ├── index.js                        Entry point. Starts the Express server and Discord client.
-├── .env                            Discord bot token and allowed engine URL.
-├── package.json
+├── .env                            Discord bot token and allowed caller URLs/keys.
+│
+├── config/
+│   └── routes.json                 Maps log type to channel ID, plus a fallback channel,
+│                                   per-type on/off switches, and severity overrides.
 │
 ├── handlers/
-│   ├── log.js                      Receives POST from engine, formats entry, sends to channel_id.
+│   ├── log.js                      Receives POST from a log dispatcher, looks up the route, sends.
 │   └── consent.js                  Handles consent button, modal validation, role assignment, consent log.
 │
 └── utils/
     └── formatter.js                Formats log entries for Discord. Handles 2000 char splits and file attachments.
 ```
 
-The engine posts to Iris via HTTP with a `channel_id` and log content in the body. Iris formats it and sends to that channel. No routing logic, no channel mapping — the engine decides where it goes.
+See "Logging and the Log Dispatcher" below for what gets sent and how routing works.
 
 ---
 
-Only the bot has a configdata.json. The engine has no identity file because it receives everything it needs inside the context object on every request. The engine's only standalone config is a .env file for the server port.
-
-The bot's configdata.json is the single source of truth for who she is and how she connects to things.
+Only the bot has a `configdata.json`. The engine has no identity file because it receives everything it needs inside the context object on every call. The bot's `configdata.json` is the single source of truth for who she is and how she connects to things.
 
 ```json
 {
@@ -182,7 +192,7 @@ The bot's configdata.json is the single source of truth for who she is and how s
   "cycle_start_date": "YYYY-MM-DD",
   "ai_provider": "groq",
   "ai_model": "llama3-8b-8192",
-  "engine_url": "https://aria-engine.onrender.com",
+  "iris_url": "https://iris.onrender.com",
   "active_channels": [
     "CHANNEL_ID_1",
     "CHANNEL_ID_2",
@@ -201,7 +211,7 @@ ARIA is designed for controlled environments only. A maximum of ten servers and 
 
 ## The Three Databases
 
-All three databases live on the bot side. ARIA never reads from or writes to them directly. The bot reads what it needs, passes it to the engine as context, and writes back whatever the engine returns.
+All three databases live on the bot side. The engine never reads from or writes to them directly, even though it now runs in the same process as the code that does. The bot reads what it needs, passes it to the engine as context, and writes back whatever the engine returns.
 
 They are kept on Turso and intentionally separated because they each serve a completely distinct purpose.
 
@@ -213,7 +223,7 @@ Everything about her internal state and personal growth. Who she is right now, h
 
 **cycle_tracker** - Tracks the current menstrual cycle phase and day. Used by mood.js and cycle.js to apply phase-specific mood tendencies.
 
-**daily_schedule** - Stores the generated activity schedule for each UTC day. Generated at midnight and persists through restarts.
+**daily_schedule** - Stores the generated activity schedule for each Stockholm calendar day. Generated at midnight Stockholm time and persists through restarts.
 
 **current_state** - Always a single row, updated in place. The live snapshot of everything: mood, intensity, activity, sleep status, calculated age.
 
@@ -304,7 +314,7 @@ Mood is not a simple variable. It is a stack of systems working together.
 
 **Intensity:** 0 to 100. Combined with the mood name to produce things like "Angry at 73" or "Happy at 41."
 
-**Passive drift:** Mood shifts gradually on its own over time. The direction and speed of drift is influenced by time of day, day of week, season, and current cycle phase.
+**Passive drift:** Mood shifts gradually on its own over time. The direction and speed of drift is influenced by time of day, day of week, season, and current cycle phase, all measured in Stockholm local time.
 
 **Interaction triggers:** Messages can push mood in a direction. Positive interactions nudge toward happy or content. Negative ones push toward angry or sad. The strength of the push depends on trust and warmth scores.
 
@@ -338,7 +348,7 @@ She runs on a full 28-day simulated menstrual cycle with four phases. Each phase
 
 ## The Daily Life System
 
-She has an actual simulated day. The schedule is generated fresh every midnight UTC and stored in the database so it survives restarts.
+She has an actual simulated day, lived on Stockholm time. The schedule is generated fresh every midnight Stockholm time and stored in the database so it survives restarts.
 
 A typical day might look like this:
 
@@ -536,7 +546,7 @@ The shift is gradual and subtle. Nobody who starts talking to her at 17 and come
 
 ## Anniversaries and Date Awareness
 
-reach_out.js and mood_baseline.js both check life_events and memorable_moments timestamps against the current UTC date every night.
+reach_out.js and mood_baseline.js both check life_events and memorable_moments timestamps against the current Stockholm date every night.
 
 If today matches or is close to a significant date, two things can happen depending on what the event was:
 - A positive anniversary might add a small warm nostalgic nudge to her morning baseline
@@ -605,21 +615,48 @@ If too many people talk to her at once, or one conversation runs unusually long,
 
 ---
 
+## Logging and the Log Dispatcher
+
+Both `engine/` and `bot/` have their own log dispatcher — a small module that sends structured log events to Iris over HTTP. Neither one knows or cares about Discord channels. A dispatcher sends only a log type, a source (`engine` or `bot`), a severity, and the payload. Iris decides where it actually goes.
+
+Logging is outbound-only and fire-and-forget. A failed or slow log call never blocks a request and never changes a result. If Iris is unreachable, the event is dropped (and the failure is written to the console as a fallback).
+
+**Who dispatches what:**
+- `engine/`: engine decisions, mood shifts, flags fired, nightly job outputs, engine errors
+- `bot/`: interaction logs (prompt and response pairs), DB write failures, AI provider errors, validator failures, downtime notices
+
+**Iris routing:** Iris holds a routing config (`config/routes.json`) that maps each log type to a channel ID. It's configurable without touching code — changing where a log type goes means editing config, not redeploying logic. It supports:
+- A default fallback channel for any log type without an explicit mapping
+- A per-type on/off switch
+- An optional severity override, so all `error`-severity events can also be mirrored into an alerts channel regardless of their type's normal destination
+
+This lines up with the retention categories in the data policy — each log type lands in its own channel with its own rolling retention window.
+
+---
+
 ## The Nightly Job Pipeline
 
-Every midnight Stockholm time, while she is asleep, the bot's scheduler triggers a sequence of job endpoints on the engine. The bot handles all the data movement. The engine handles all the processing.
+Every midnight Stockholm time, while she is asleep, the bot's scheduler triggers the job functions in the engine in sequence. The bot handles all the data movement. The engine handles all the processing. Order matters here — several jobs depend on state that an earlier job produces, so they run in dependency order rather than alphabetically or by how they're listed elsewhere in the docs.
 
-The flow for each job is the same: bot reads relevant data from DB, sends it to the engine job endpoint, engine processes it and returns results, bot writes results back to DB.
+The flow for each job is the same: bot reads relevant data from DB, passes it to the matching engine job function, engine processes it and returns results, bot writes results back to DB.
 
 ```
-00:00  schedule_gen      Bot sends current state. Engine returns tomorrow's activity schedule.
-00:05  decay             Bot sends all user scores. Engine returns decayed values.
-00:10  knowledge_decay   Bot sends shallow knowledge entries. Engine returns IDs to delete.
-00:15  reflect           Bot sends today's interaction logs per user. Engine returns updated thoughts.
-00:25  cycle_update      Bot sends current cycle state. Engine returns advanced phase and day.
-00:30  mood_baseline     Bot sends cycle state and day events. Engine returns morning mood baseline.
-00:35  reach_out         Bot sends relationship and absence data. Engine returns outbound message
-                         if conditions are met (high warmth, long absence, good mood, active channel).
+00:00  cycle_update      Bot sends current cycle state. Engine returns advanced phase and day.
+                         Runs first because schedule_gen and mood_baseline both need it.
+00:05  schedule_gen      Bot sends current state (including the fresh cycle phase). Engine
+                         returns the day's activity schedule.
+00:10  decay             Bot sends all user scores. Engine returns decayed values.
+00:15  knowledge_decay   Bot sends shallow knowledge entries. Engine returns IDs to delete.
+00:20  memory_prune      Bot sends memorable moments. Engine decays low-importance entries
+                         and returns which ones should be deleted.
+00:25  reflect           Bot sends today's interaction logs per user. Engine returns updated
+                         thoughts, and flags any topic opinions ready for revision.
+00:35  mood_baseline     Bot sends the updated cycle state, decay results, and day events.
+                         Engine returns the morning mood baseline, now reading a settled state.
+00:40  reach_out         Runs last, since it depends on the finished mood baseline and energy
+                         level. Bot sends relationship and absence data. Engine returns an
+                         outbound message if conditions are met (high warmth, long absence,
+                         good mood, active channel).
 ```
 
 The reflection job is what makes her memory feel alive. The engine does a lightweight internal reasoning pass per user she talked to that day, blending new observations into existing thoughts rather than replacing them wholesale.
@@ -628,7 +665,7 @@ The reflection job is what makes her memory feel alive. The engine does a lightw
 
 ## The System Prompt Assembly
 
-personality.js inside the engine receives the full context object and assembles a single clean prompt string. It never sees raw database fields directly because the bot has already read and packaged everything. The engine just translates it into natural language and structures it for the AI.
+personality.js inside the engine receives the full context object and assembles a single clean prompt string. It never touches raw database fields directly because the bot has already read and packaged everything. The engine just translates it into natural language and structures it for the AI.
 
 The bot then takes that assembled prompt string and calls the AI provider with it. The engine is not involved in that call at all.
 
@@ -689,15 +726,15 @@ Every time a user sends a message, the bot goes through this sequence:
 1. Read current state from Core DB (mood, cycle, schedule, fatigue, residue, vocabulary)
 2. Read user data from User DB (relationship, thoughts, block status, social graph)
 3. Assemble a context object
-4. Send context to ARIA via REST
-5. Receive result from ARIA (assembled prompt + state updates + flags)
+4. Pass the context object directly to the engine module (same process, no network call)
+5. Receive the result back (assembled prompt + state updates + flags)
 6. Call AI provider with the assembled prompt
 7. Write state updates back to Core DB and User DB
 8. Handle any flags (unknown words, memorable moments, block triggers)
 9. Send the AI response to Discord
 ```
 
-The context object the bot sends to ARIA looks like this:
+The context object the bot passes to the engine looks like this:
 
 ```json
 {
@@ -767,7 +804,7 @@ The context object the bot sends to ARIA looks like this:
 }
 ```
 
-ARIA processes all of that and sends back:
+The engine processes all of that and returns:
 
 ```json
 {
@@ -809,6 +846,8 @@ The anchor also protects her identity across aging. Each persona file has a lock
 
 Every AI response passes through `validator.js` before reaching Discord. The validator checks for empty responses, responses over the character limit, the AI referring to her in third person, and a small hard list of phrases that indicate the AI has broken character. If validation fails the bot retries the AI call once with a note that the previous response was invalid. If it fails twice she stays silent and the failure is logged to Iris.
 
+This exists to catch broken output, not to sand down her personality. Being blunt, sarcastic, or moody is not a validation failure. Sounding like an AI assistant describing itself in the third person is.
+
 ---
 
 ## Message Intent Classification
@@ -847,9 +886,9 @@ Messages that arrive within 500ms of each other in the same channel are queued a
 
 ---
 
-## Engine Downtime Handling
+## Engine Error Handling
 
-Every engine call has a five second timeout. If the engine does not respond the bot enters silent mode for that message. No response reaches Discord, the failure is logged to Iris. If the engine is unreachable for more than ten minutes the bot posts a single message saying she is not feeling well and goes quiet until the engine comes back online. When it does, normal processing resumes automatically.
+Because the engine now runs as part of the same process as the bot rather than as a separate networked service, there's no connection timeout to handle — but the engine can still throw. If a call into the engine throws an unexpected error, the bot catches it, logs the failure to Iris, and stays silent for that message rather than crashing the whole process. If several engine errors happen in a short window, the bot posts a single message saying she is not feeling well and goes quiet on that channel until a manual restart or fix, rather than repeatedly failing in front of users.
 
 ---
 
@@ -867,7 +906,7 @@ If she goes to sleep below 40 energy the morning starting energy is penalized pr
 
 ## Memory Importance and Pruning
 
-Every memorable moment is created with an importance score from 0 to 100 set by `moment_detector.js` based on the emotional weight of the interaction. During the nightly job run, moments that have never been recalled and whose importance score is below 40 decay by 2 points per night. When importance hits zero the memory is deleted. Moments above 70 importance never decay. Moments that get recalled frequently gain importance, so things that genuinely matter stick around permanently.
+Every memorable moment is created with an importance score from 0 to 100 set by `moment_detector.js` based on the emotional weight of the interaction. During the nightly `memory_prune` job, moments that have never been recalled and whose importance score is below 40 decay by 2 points per night. When importance hits zero the memory is deleted. Moments above 70 importance never decay. Moments that get recalled frequently gain importance, so things that genuinely matter stick around permanently.
 
 ---
 
@@ -895,9 +934,9 @@ When two users she is close to are in visible conflict with each other in a chan
 
 ---
 
+## Release Phases
 
-
-**Closed Alpha:** Internal only. Core engine, mood system, and database structure gets built and tested here. No real users.
+**Closed Alpha:** Internal. The dev team plus a small invited group — 10 people max, one server. "Users" here means anyone outside the dev team, so this phase is the team plus a handful of hand-picked testers, not the general public. Core engine, mood system, and database structure get built and tested here.
 
 **Private Beta:** Small invited group. Real conversations start happening. The learning system and memory get tested in actual use.
 
@@ -911,16 +950,15 @@ Each phase may use a different AI provider, swapped via the bot's configdata.jso
 
 | Component | Technology |
 |-----------|------------|
-| Engine runtime | Node.js |
-| Engine hosting | Render |
-| Bot framework | discord.js |
-| Logger and server manager | Iris, hosted on Render |
+| Runtime | Node.js |
+| Hosting | Render |
+| Discord library | discord.js |
+| Logger and server manager | Iris, hosted on Render, separate repo |
 | Core database | Turso (aria-core) — bot side |
 | User database | Turso (aria-users) — bot side |
 | Knowledge database | Turso (aria-knowledge) — bot side |
-| Real-time sync | WebSocket |
-| Bot-to-engine | REST API |
-| Engine-to-Iris | HTTP POST |
+| Engine-to-bot | Direct function calls (single process) |
+| Bot/Engine-to-Iris | HTTP POST (log dispatcher) |
 | AI provider | Configurable via bot's configdata.json |
 
 ---
@@ -929,7 +967,7 @@ Each phase may use a different AI provider, swapped via the bot's configdata.jso
 
 The current architecture uses a third party AI provider as a voice. The engine crafts a precise prompt, the AI generates a response, and the bot sends it. This works well and is the right approach for now, but it is not the end goal.
 
-As ARIA grows and real conversations accumulate across multiple servers, something valuable starts to build up: a dataset of how a specific personality with a specific emotional state responds to specific situations. That data is exactly what you need to train a model that does not need a prompt at all.
+As ARIA grows and real conversations accumulate, something valuable starts to build up: a dataset of how a specific personality with a specific emotional state responds to specific situations. That data is exactly what you need to train a model that does not need a prompt at all.
 
 The long term path looks like this:
 
@@ -937,16 +975,16 @@ The long term path looks like this:
 
 **Phase 2:** Fine-tune an open source model on collected ARIA conversation data. The model starts to internalize her personality, her speech patterns, her emotional range. The prompt gets shorter because the model already knows a lot of it.
 
-**Phase 3:** A model trained specifically on ARIA data from the ground up. Her voice is in the weights, not the prompt. The provider.js in the bot just points to a self-hosted model. The rest of the architecture stays completely unchanged.
+**Phase 3:** A model trained specifically on ARIA data from the ground up. Her voice is in the weights, not the prompt. `provider.js` in the bot just points to a self-hosted model. The rest of the architecture stays completely unchanged.
 
 This is why conversation logging matters even in closed alpha. Every interaction stored in the database is potential training data. The way she responds to a tired mood, the way she reacts to someone waking her up, the way her tone shifts between a stranger and a close friend, all of that needs to be captured now so it can be learned later.
 
-Contributors should treat the interaction logs not just as memory for the current system but as the foundation of something bigger. Log everything. Keep it clean. It will matter later.
+This is being built to see how far a simulated person can be pushed — not with an eye toward eventually selling the engine or the model. If the underlying architecture ends up useful for something else down the line, that would be a separate, later decision, not something shaping choices made now.
 
 ---
 
 ## A Note for Contributors
 
-If you are joining this project, read this document before touching any code. Every file exists for a reason and every system connects to something else. Each folder has an information.md that explains what every file in that folder does, why it exists, and what connects to it. Read that before opening any file for the first time.
+If you are joining this project, read this document before touching any code. Every file exists for a reason and every system connects to something else.
 
-The goal of this project is not to build a clever chatbot. It is to build something that makes people forget they are talking to software. Every decision should be made with that in mind.
+The goal of this project is not to build a clever chatbot. It is to build something that makes people forget they are talking to software. Every decision should be made with that in mind — including the decision to leave something a little rough or unfiltered rather than smoothing it into something safer and more generic.
