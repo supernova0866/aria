@@ -33,7 +33,7 @@ Every time a message is processed, the following gets logged:
 - The channel the interaction happened in
 - A timestamp
 
-**In the Discord logging server:**
+**In the Discord logging server (via Iris):**
 - The full assembled prompt that was sent to the AI
 - The raw AI response
 - Her mood, intensity, cycle phase, and energy at the time
@@ -48,7 +48,7 @@ Every time a message is processed, the following gets logged:
 
 ### Nightly Jobs
 
-Every midnight UTC the nightly pipeline runs and generates updated state. The outputs of each job get written to the Core DB and logged to the Discord logging server. No new user data is collected during this process. It only processes data that was already captured during the day.
+Every midnight Stockholm time the nightly pipeline runs and generates updated state. The outputs of each job get written to the Core DB and logged to the Discord logging server via Iris. No new user data is collected during this process. It only processes data that was already captured during the day.
 
 ### Vocabulary and Knowledge
 
@@ -88,7 +88,7 @@ General world knowledge, topic opinions, preferences and aversions. No user-iden
 
 ### Discord Logging Server
 
-Structured logs of engine decisions, prompt and response pairs, mood shifts, flag events, nightly job outputs, and errors. This is the primary source of raw training data.
+Structured logs of engine decisions, prompt and response pairs, mood shifts, flag events, nightly job outputs, and errors, delivered via Iris's log dispatcher and routed to channels according to Iris's routing config. This is the primary source of raw training data.
 
 **Retention:**
 - Interaction logs (prompt and response pairs): 18 months rolling window
@@ -102,9 +102,9 @@ After the retention window closes, entries are either archived into the cleaned 
 
 ## Consent by Phase
 
-### Closed Alpha (10 people, 1 server)
+### Closed Alpha (dev team + up to 10 invited people, 1 server)
 
-Every participant is personally invited and personally briefed before the bot is in their server. Participation in closed alpha is conditional on agreeing to full data collection. There is no opt out available during this phase.
+Every invited participant (i.e. anyone outside the dev team) is personally invited and personally briefed before the bot is in their server. Participation in closed alpha is conditional on agreeing to full data collection. There is no opt out available during this phase.
 
 This is not a hidden condition. Every participant is told explicitly before they join:
 
@@ -328,4 +328,6 @@ No policy change that reduces user protections goes into effect without at least
 ```
 v1.0   Initial policy written during planning phase. Covers alpha through full release 
        and the training pipeline up to the custom LM.
+v1.1   Aligned nightly job timing to Stockholm time (was UTC). Logging server delivery
+       now routed through Iris's log dispatcher/routing config instead of a direct post.
 ```
